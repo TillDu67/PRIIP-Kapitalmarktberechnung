@@ -100,7 +100,7 @@ vgl <- vergleiche_alle(params, vb, ap, res,
 | Verfahren | Laufzeit | Rel. Fehler |
 |---|---|---|
 | MC Euler-Maruyama (480 Monatschritte, VBA-Standard) | ~20 Min. | Referenz |
-| MC Euler-Maruyama vektorisiert (480 Monatschritte, R) | ~1,8 Sek. | Referenz |
+| MC Euler-Maruyama vektorisiert (480 Monatschritte, R) | ~2 Sek. | Referenz |
 | MC exakt, Jahresgitter (Lemma 5.1.1) | ~2 Sek. | Referenz |
 | SM N=5 | 0,4 Sek. | 20,2 % |
 | SM N=8 | 1,5 Sek. | 38,5 % |
