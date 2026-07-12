@@ -696,12 +696,12 @@ berechne_renditen <- function(params, vb, alle_pfade, art = "Deckungsstock") {
   cat("Vorbereitung K_swap-Simulation (vektorisiert)...\n")
   start_prep <- Sys.time()
   
-  # --- Bx, By: konstant über t (h_vec ist immer 1:n_h) ---
+  # Bx, By: konstant über t (h_vec ist immer 1:n_h)
   h_vec <- 1:n_h
   Bx <- (1 - exp(-a_x * h_vec * delta)) / a_x   # Länge n_h
   By <- (1 - exp(-a_y * h_vec * delta)) / a_y   # Länge n_h
   
-  # --- C[t,h] = exp(-int_psi_t_T[t+1,t+1+h] + 0.5*V_t_T[t+1,t+1+h]), t=1..480, h=1..n_h ---
+  # C[t,h] = exp(-int_psi_t_T[t+1,t+1+h] + 0.5*V_t_T[t+1,t+1+h]), t=1..480, h=1..n_h
   C <- matrix(0, 480, n_h)
   rows <- 2:481  # entspricht t+1 für t=1..480
   for (h in 1:n_h) {
@@ -710,17 +710,17 @@ berechne_renditen <- function(params, vb, alle_pfade, art = "Deckungsstock") {
     C[, h] <- exp(-int_psi_t_T[idx] + 0.5 * V_t_T[idx])
   }
   
-  # --- Zeitabhängige Risikoprämien ---
+  # Zeitabhängige Risikoprämien
   lambda_x_t <- ifelse(1:480 <= tau, d_x, l_x)
   lambda_y_t <- ifelse(1:480 <= tau, d_y, l_y)
   
-  # --- X_TERM_T, Y_TERM_T: 480 x n_pfade (transponiert: Zeile=t, Spalte=Pfad) ---
+  # X_TERM_T, Y_TERM_T: 480 x n_pfade (transponiert: Zeile=t, Spalte=Pfad)
   X_TERM_T <- t(x[, 2:481]) + (lambda_x_t * (1 - exp(-a_x * (1:480) * delta)))
   Y_TERM_T <- t(y[, 2:481]) + (lambda_y_t * (1 - exp(-a_y * (1:480) * delta)))
   
   cat("Vorbereitung:", round(difftime(Sys.time(), start_prep, units="secs"), 1), "Sekunden\n")
   
-  # --- Hauptschleife: nur 145 Iterationen über h, jeweils 480 x n_pfade Matrizen ---
+  # Hauptschleife: nur 145 Iterationen über h, jeweils 480 x n_pfade Matrizen
   cat("Starte K_swap-Simulation (Schleife über h)...\n")
   start_h <- Sys.time()
   
@@ -739,8 +739,8 @@ berechne_renditen <- function(params, vb, alle_pfade, art = "Deckungsstock") {
   
   cat("K_swap-Simulation:", round(difftime(Sys.time(), start_h, units="secs"), 1), "Sekunden\n")
   
-  # --- R_B_d Initialisierung (s=0..24) ---
-  # VBA: R_B_d(s) = mean(K_swap(456-n_swap+s .. 455+s)), allgemein fuer beliebiges n_swap
+  # R_B_d Initialisierung (s=0..24)
+  # VBA: R_B_d(s) = mean(K_swap(456-n_swap+s .. 455+s)), allgemein für beliebiges n_swap
   R_B_d <- matrix(0, n_pfade, 505)
   sum2 <- sum(K_swap_hist[(457 - n_swap):456])
   R_B_d[, 1] <- sum2 / n_swap
@@ -771,7 +771,7 @@ berechne_renditen <- function(params, vb, alle_pfade, art = "Deckungsstock") {
     R_S_oK <- rep(1, n_pfade)
   }
   
-  # --- Restliche Schleife: nur noch O(n_pfade) pro Iteration, 480 Iterationen ---
+  # Restliche Schleife: nur noch O(n_pfade) pro Iteration, 480 Iterationen
   cat("Starte R_B_d / Mischrendite-Schleife...\n")
   start_loop <- Sys.time()
   
@@ -835,7 +835,7 @@ berechne_renditen <- function(params, vb, alle_pfade, art = "Deckungsstock") {
   
   cat("R_B_d/Mischrendite-Schleife:", round(difftime(Sys.time(), start_loop, units="secs"), 1), "Sekunden\n")
   
-  # --- Output zusammenbauen ---
+  # Output zusammenbauen
   cat("Baue Output zusammen...\n")
   start_output <- Sys.time()
   

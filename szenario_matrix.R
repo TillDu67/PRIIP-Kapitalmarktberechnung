@@ -2,24 +2,14 @@
 # Szenario-Matrix-Ansatz nach Günther & Hieber (2024)
 # "Efficient simulation and valuation of equity-indexed annuities
 #  under a two-factor G2++ model", European Actuarial Journal
-#
-# Wiederverwendet: vb$psi, vb$int_psi_t_T, vb$V_t_T aus vorberechnungen.R
-# Benötigt: install.packages("mvtnorm")
-#
-# Öffentliche Einstiegsfunktion: sm_berechnung()
-# Aufruf aus main.R:
-#   source("szenario_matrix.R")
-#   sm <- sm_berechnung(params, vb, N = 10, delta_grid = 8.25,
-#                       T_jahre = 25, g = 0.005, alpha = 0.465)
 
 # ============================================================
 # MODUL 1: Kovarianzmatrix Sigma (Lemma 2.1)
 # ============================================================
-# Berechnet die 4x4-Kovarianzmatrix der gemeinsamen Verteilung
-# (x_t, y_t, integral_r, ln(S_t/S_{t-1})) | F_{t-1}
-# nach Lemma 2.1 im Paper.
+# Kovarianzmatrix nach Lemma 2.1 — die vier Komponenten sind
+# x_t, y_t, das Zinsintegral und ln(S_t/S_{t-1}) bedingt auf F_{t-1}
 #
-# Parameter entsprechen deiner Namenskonvention:
+# Parameter entsprechen der Namenskonvention:
 #   a     = a_x   (mean reversion speed x)
 #   b     = a_y   (mean reversion speed y)
 #   nu    = sigma_x (Volatilität x)
@@ -28,10 +18,6 @@
 #   sigma = sigma_s (Aktienvolatilität)
 #   rho1  = Korrelation S mit x-Brownian
 #   rho2  = Korrelation S mit y-Brownian (NICHT rho_xy*rho1 + ...)
-#
-# Hinweis: Im Paper gilt rho2_tilde = rho1*rho_r + rho2*sqrt(1-rho_r^2)
-# das ist die Korrelation zwischen dem y-Brownschen und dem Aktien-
-# Brownschen. Dein params$rho_xy ist rho_r aus dem Paper.
 
 berechne_sigma <- function(a, b, nu, eta, rho_r, sigma, rho1, rho2) {
   
@@ -42,18 +28,13 @@ berechne_sigma <- function(a, b, nu, eta, rho_r, sigma, rho1, rho2) {
   gb1  <- g(b,     1)   # g_b(1)
   gab1 <- g(a + b, 1)   # g_{a+b}(1)
   
-  # Exakte OU-Varianzen: Var(x_t | x_{t-1}) = nu^2 * g_{2a}(1)
-  # Das Paper schreibt "nu^2 * g_a^2(1)" — das ist die Notation
-  # g_a^2 = g_{2a}  (quadratisches Argument, nicht quadrierter Wert).
-  # Korrekte Herleitung: Ito-Isometrie aus Appendix C, Gl. (C3):
-  #   Var(x_t) = nu^2 * integral_0^1 exp(-2a(1-s)) ds = nu^2 * g_{2a}(1)
   g2a1 <- g(2*a, 1)   # g_{2a}(1) = (1-exp(-2a))/(2a)
   g2b1 <- g(2*b, 1)   # g_{2b}(1)
   
   # rho2_tilde: effektive Korrelation Aktie-y (Formel unter Gl. 6)
   rho2_tilde <- rho1 * rho_r + rho2 * sqrt(1 - rho_r^2)
   
-  # --- Kovarianzeinträge nach Lemma 2.1 (mit korrigierter Diagonale) ---
+  # Kovarianzeinträge nach Lemma 2.1
   
   # Sigma_11 = Var(x_t) — exakte OU-Formel
   S11 <- nu^2 * g2a1
@@ -62,7 +43,7 @@ berechne_sigma <- function(a, b, nu, eta, rho_r, sigma, rho1, rho2) {
   S22 <- eta^2 * g2b1
   
   # Sigma_33 = Var(integral r ds)
-  # Formel aus Appendix C (unveraendert, nutzt ga1/gb1/gab1):
+  # Formel aus Anhang C:
   S33 <- (nu/a)^2  * (1 - 2*ga1 + g2a1) +
     (eta/b)^2 * (1 - 2*gb1 + g2b1) +
     2 * rho_r * nu * eta / (a * b) * (1 - ga1 - gb1 + gab1)
@@ -71,8 +52,6 @@ berechne_sigma <- function(a, b, nu, eta, rho_r, sigma, rho1, rho2) {
   S12 <- rho_r * nu * eta * gab1
   
   # Sigma_13 = Cov(x_t, integral r)
-  # = nu^2/2 * g_{2a}(1) + rho_r*nu*eta/b * (ga(1) - g_{a+b}(1))
-  # Hinweis: Paper schreibt nu^2/2 * ga^2(1); korrekt: nu^2/2 * g_{2a}(1)
   S13 <- nu^2 / 2 * g2a1 + rho_r * nu * eta / b * (ga1 - gab1)
   
   # Sigma_23 = Cov(y_t, integral r)
@@ -119,14 +98,15 @@ berechne_sigma <- function(a, b, nu, eta, rho_r, sigma, rho1, rho2) {
 # MODUL 2: Gitter für (x, y) nach Gl. (10) und (11)
 # ============================================================
 # Erstellt N^2 Gitterpunkte für (x, y) als gleichmäßiges
-# 2D-Gitter auf der GEMEINSAMEN (marginalen) Verteilung von (x_t, y_t).
+# 2D-Gitter auf der gemeinsamen (marginalen) Verteilung von (x_t, y_t).
 #
-# Hintergrund: Das Paper (Gl. 10/11) konstruiert das y-Gitter bedingt
+# Hintergrund: Das Paper konstruiert das y-Gitter bedingt
 # auf x (sd_y|x). Das funktioniert gut wenn |rho_xy| klein ist.
-# Bei starker Korrelation (|rho| > ~0.9, wie hier rho=-0.992) kollabiert
+# Bei starker Korrelation (wie hier rho=-0.992) kollabiert
 # sd_y|x auf nahezu null und das Gitter deckt nur einen Bruchteil der
-# marginalen y-Verteilung ab — die Zeilensummen der P-Matrix werden
-# weit unter 1. Daher: Gitter auf MARGINALE Verteilung aufbauen.
+# marginalen y-Verteilung ab und die Zeilensummen der P-Matrix werden
+# weit unter 1. 
+# Daher: Gitter auf MARGINALE Verteilung aufbauen.
 # Die pmvnorm-Berechnung in Modul 3 ist davon unabhängig korrekt.
 
 erstelle_gitter <- function(N, delta_g, Sigma) {
@@ -138,7 +118,7 @@ erstelle_gitter <- function(N, delta_g, Sigma) {
   sd_x <- sqrt(S11)
   sd_y <- sqrt(S22)
   
-  # Bedingte Streuung y|x (für Information, nicht für Gitterbau)
+  # Bedingte Streuung y|x 
   var_y_given_x <- S22 - S12^2 / S11
   sd_y_given_x  <- sqrt(max(var_y_given_x, 0))  # Schutz gegen num. Fehler
   rho_xy        <- S12 / (sd_x * sd_y)
@@ -158,7 +138,7 @@ erstelle_gitter <- function(N, delta_g, Sigma) {
   li_idx  <- integer(n2)
   
   if (use_conditional) {
-    # --- Originale Paper-Methode (Gl. 11): y-Gitter bedingt auf x_i ---
+    # Originale Paper-Methode (Gl. 11): y-Gitter bedingt auf x_i
     dy <- (2 * delta_g * sd_y_given_x) / (2 * max(N - 1, 1))
     idx <- 1
     for (ki in 1:N) {
@@ -226,9 +206,8 @@ erstelle_gitter <- function(N, delta_g, Sigma) {
 # MODUL 3: Übergangswahrscheinlichkeiten P (Gl. 13)
 # ============================================================
 # Berechnet die N^2 x N^2 Matrix P der Übergangswahrscheinlichkeiten.
-# P[i,j] = P(x_t in Intervall j, y_t in Intervall j | x_{t-1}=x_i, y_{t-1}=y_i)
 #
-# Zeitinvariant! Wird einmalig berechnet.
+# Wird einmalig berechnet.
 # Verwendet bivariate Normalverteilung aus dem mvtnorm-Paket.
 #
 # Laufzeit: O(N^4) — für N=10 ca. 1-2 Sek., N=20 ca. 20-30 Sek.
@@ -245,9 +224,9 @@ berechne_P_matrix <- function(gitter, sig, a, b) {
   dy  <- gitter$dy
   
   # Aus Sigma: Kovarianz von (x_t, y_t) | (x_{t-1}, y_{t-1})
-  # Die BEDINGTE Kovarianzmatrix von (x_t, y_t) gegeben F_{t-1}
+  # Bedingte Kovarianzmatrix von (x_t, y_t) gegeben F_{t-1}
   # ist der 2x2-Block Sigma[1:2, 1:2] aus Lemma 2.1
-  # (unabhängig von x_{t-1}, y_{t-1} — Markov-Eigenschaft)
+  # (unabhängig von x_{t-1}, y_{t-1} —> Markov-Eigenschaft)
   S11 <- sig$Sigma[1, 1]
   S12 <- sig$Sigma[1, 2]
   S22 <- sig$Sigma[2, 2]
@@ -267,9 +246,6 @@ berechne_P_matrix <- function(gitter, sig, a, b) {
     yi_prev <- gitter$y[i]
     
     # Bedingte Erwartung von (x_t, y_t) | (x_{t-1}, y_{t-1}) nach Lemma 2.1
-    # mu1 = e^{-a} * x_{t-1}  (lambda_x = 0 hier, da wir die INNOVATIONS-
-    # Verteilung meinen; lambda_x wird im phi-Term berücksichtigt)
-    # Korrekt: mu_xt = e^{-a}*x_{t-1}, mu_yt = e^{-b}*y_{t-1}
     mu_xt <- exp_a * xi_prev
     mu_yt <- exp_b * yi_prev
     mu_cond <- c(mu_xt, mu_yt)
@@ -307,7 +283,7 @@ berechne_P_matrix <- function(gitter, sig, a, b) {
 
 
 # ============================================================
-# MODUL 4: Bedingte MGF phi nach Theorem 3.1
+# MODUL 4: Bedingte MGF phi nach Satz 3.1
 # ============================================================
 # Berechnet für jedes Szenario-Paar (i,j) den Wert
 #   phi_{x_{t-1}, y_{t-1}, x_t, y_t}(u=1, t)
@@ -316,7 +292,7 @@ berechne_P_matrix <- function(gitter, sig, a, b) {
 # Das ergibt direkt den bedingten Erwartungswert des diskontierten
 # jährlichen Beitrags zur EIA-Ablaufleistung.
 #
-# Zeitabhängig wegen int_psi(t-1,t)!
+# Zeitabhängig wegen int_psi(t-1,t)
 
 berechne_phi_matrix <- function(t_jahr, gitter, sig,
                                 a, b, nu, eta, rho_r,
@@ -342,13 +318,11 @@ berechne_phi_matrix <- function(t_jahr, gitter, sig,
   # Determinante des 2x2-Blocks [[S11, S12],[S12, S22]]
   det_xy <- S11 * S22 - S12^2
   
-  # Vektoren für alle n2 Szenarien (Ausgangszustand i)
   # Erwartungswerte mu1(i), mu2(i) für gegebenes (x_{t-1}, y_{t-1})
   mu1_vec <- exp_a * gitter$x + lambda_x * (1 - exp_a)
   mu2_vec <- exp_b * gitter$y + lambda_y * (1 - exp_b)
   
   # mu3: bedingte Erwartung des Integrals ∫r ds | F_{t-1}
-  # mu3 = int_psi(t-1,t) + ga1*x_{t-1} + gb1*y_{t-1} + lambda_x*(1-ga1) + lambda_y*(1-gb1)
   mu3_vec <- int_psi_t +
     sig$ga1 * gitter$x +
     sig$gb1 * gitter$y +
@@ -356,10 +330,9 @@ berechne_phi_matrix <- function(t_jahr, gitter, sig,
     lambda_y * (1 - sig$gb1)
   
   # mu4: bedingte Erwartung von ln(S_t/S_{t-1}) | F_{t-1}
-  # = mu3 + lambda_S - 0.5*sigma^2
   mu4_vec <- mu3_vec + lambda_S - 0.5 * sigma^2
   
-  # --- Für u=1: Tilted parameters (Theorem 3.1) ---
+  # Für u=1 (Theorem 3.1)
   # mu1_tilde(u=1) = mu1 - sigma13
   # mu2_tilde(u=1) = mu2 - sigma23
   # mu3_tilde(u=1) = mu3 + lambda_S - 0.5*sigma^2
@@ -371,8 +344,7 @@ berechne_phi_matrix <- function(t_jahr, gitter, sig,
   mu3t_base <- lambda_S - 0.5 * sigma^2 - (S33 + sigma_sum)
   # mu3_tilde = int_psi + ga1*x + gb1*y + lambda_x*(1-ga1) + lambda_y*(1-gb1) + mu3t_base
   
-  # Sigma_tilde (gleiche Kovarianzstruktur der ersten 3 Komponenten,
-  # aber mit "~"-Einträgen für die Aktienkomponente):
+  # Sigma_tilde (gleiche Kovarianzstruktur der ersten 3 Komponenten):
   S13t <- S13 + sigma * rho1 * nu * ga1
   S23t <- S23 + sigma * rho2_tilde * eta * gb1
   S33t <- sigma^2 + S33 + sigma * (rho1 * nu / a * (1 - ga1) + rho2_tilde * eta / b * (1 - gb1))
@@ -381,12 +353,10 @@ berechne_phi_matrix <- function(t_jahr, gitter, sig,
   det_xy_t <- S11 * S22 - S12^2  # = det_xy (S11,S12,S22 unveraendert)
   
   # Bedingte Varianz des Integrals ∫r ds | x_t, y_t (Formel für sigma_bar^2):
-  # sigma_bar^2 = S33 - [S13, S23] * inv([[S11,S12],[S12,S22]]) * [S13,S23]'
   sigma_bar2 <- S33 -
     (S22 * S13^2 - 2 * S12 * S13 * S23 + S11 * S23^2) / det_xy
   
   # Bedingte Varianz von ln(S) | x_t, y_t (unter Qt_u, Theorem 3.1):
-  # sigma2_tilde = S33t - [S13t,S23t]*inv([S11,S12;S12,S22])*[S13t,S23t]'
   sigma2_tilde <- S33t -
     (S22 * S13t^2 - 2 * S12 * S13t * S23t + S11 * S23t^2) / det_xy_t
   
@@ -400,14 +370,13 @@ berechne_phi_matrix <- function(t_jahr, gitter, sig,
   A_x <- (S22 * S13 - S12 * S23) / det_xy    # Koeffizient für (x_j - mu1_i)
   A_y <- (S11 * S23 - S12 * S13) / det_xy    # Koeffizient für (y_j - mu2_i)
   
-  # Tilted Koeffizienten:
+  # Koeffizienten:
   At_x <- (S22 * S13t - S12 * S23t) / det_xy_t
   At_y <- (S11 * S23t - S12 * S13t) / det_xy_t
   
   for (i in 1:n2) {
     
     # Bedingte Erwartung von ∫r | x_t=x_j, y_t=y_j
-    # mu_bar(i,j) = mu3_vec[i] + A_x*(x_j - mu1_vec[i]) + A_y*(y_j - mu2_vec[i])
     mu_bar_vec <- mu3_vec[i] +
       A_x * (gitter$x - mu1_vec[i]) +
       A_y * (gitter$y - mu2_vec[i])
@@ -445,9 +414,9 @@ berechne_phi_matrix <- function(t_jahr, gitter, sig,
 
 
 # ============================================================
-# MODUL 5: Hauptfunktion — Iteration nach Algorithm 3.1
+# MODUL 5: Hauptfunktion — Iteration nach Algorithmus 3.1
 # ============================================================
-# Berechnet E[Z_T] via Szenario-Matrix-Ansatz.
+# Berechnet E[Z_T] mit Szenario-Matrix-Ansatz.
 #
 # Argumente:
 #   params      — Liste aus parameter_einlesen.R
@@ -489,21 +458,14 @@ sm_berechnung <- function(params, vb,
   lambda_S <- params$lambda_N   # Risikoprämie Aktie (Normal-Szenario)
   delta   <- params$delta       # Monatlicher Zeitschritt (= 1/12)
   
-  # Zeitabhängige Risikoprämien: vor/nach Tau
+  # Zeitabhängige Risikoprämien: vor und nach Tau
   # Für den SM-Ansatz auf Jahresbasis vereinfachen wir:
   # lambda_x/y = d_x/d_y im ersten Jahr (t=1..tau/12 Jahre),
   # danach l_x/l_y
   # (tau ist in Monaten angegeben)
   tau_jahre <- params$tau / 12
   
-  # int_psi(t-1, t) für t=1..T_jahre (jährliche Integrale)
-  # In vb$int_psi_t_T ist das kumulierte Integral gespeichert.
-  # int_psi(t-1,t) = int_psi_t_T[1, 12*(t-1)+1 .. 12*t+1] aufsummiert
-  # Da int_psi_t_T monatliche Trapezintegrale enthält:
-  # int_psi_jahres[t] = sum_{m=1}^{12} int_psi_neu[12*(t-1) + m]
-  #
-  # Einfacher: int_psi_t_T[1, 12*t+1] - int_psi_t_T[1, 12*(t-1)+1]
-  # = int_psi_t_T[Zeile 1 = t=0, kumuliert von 0 bis 12*t Monate]
+  # Jährliche Integrale int_psi(t-1, t) als Differenz der kumulierten Werte.
   int_psi_jahres <- numeric(T_jahre)
   for (t in 1:T_jahre) {
     # Monatsspalten: t=0 -> Spalte 1, t=k -> Spalte k+1
@@ -519,40 +481,21 @@ sm_berechnung <- function(params, vb,
   
   # --- Modul 1: Sigma ---
   if (verbose) cat("Berechne Kovarianzmatrix Sigma (jaehrlich)...\n")
-  # Achtung: Sigma ist auf JAHRESBASIS (Zeitschritt = 1 Jahr)
-  # aber unsere Parameter a, b, nu, eta sind monatlich kalibriert!
-  # Wir müssen auf Jahresbasis skalieren: ga(1) mit a_jaehrlich = a_monatlich * (1/12)? 
-  # NEIN: Im G2++/Vasicek-Modell sind a,b dimensionslos-pro-Zeiteinheit.
-  # Wenn delta=1/12 und a in 1/Monat: dann ist ga(1 Jahr) = (1-exp(-a*12))/a
-  # Das Paper arbeitet mit Jahresschritten, also ga(1) = (1-exp(-a))/a mit a=Jahresrate.
-  # Dein params$a_x ist die MONATLICHE mean-reversion-speed (in simulation.R: exp(-a_x*delta))
-  # -> a_jaehrlich = a_x (da delta bereits herausmultipliziert ist in den Formeln)
-  # Aber: g_a(1) im Paper = (1-exp(-a*1))/a mit Jahresschritt
-  # -> Im Code: g_a(1 Jahr) = (1 - exp(-a_x * 12 * delta)) / a_x = (1-exp(-a_x))/a_x
-  #    da 12*delta = 1 Jahr
-  # Fazit: Wenn a_x in deinen params die monatliche Geschwindigkeit ist,
-  # dann verwenden wir a_x direkt (sie bezieht sich auf 1 Monat als Zeiteinheit).
-  # Für Jahresschritte: ersetze a -> a*12 in allen ga(1)-Ausdrücken? 
-  # -> NEIN! Im Paper gilt: ga(s) = (1-exp(-a*s))/a, und s=1 bedeutet 1 JAHR.
-  # -> Wir müssen die jährliche mean-reversion angeben: a_jahr = a_monat * 12.
-  # Hinweis: Das wird im Kommentar explizit ausgewiesen.
   
-  # Konversion: Modellparameter von monatlich auf jährlich
-  # (da SM-Ansatz auf jährlichem Gitter operiert)
+  # Konversion auf Jahresbasis:
+  # a_jahr = a_x numerisch (da exp(-a_x * 1 Jahr) = exp(-a_x * 12 * delta))
+  # nu, eta bleiben unverändert — sie sind Diffusionskoeffizienten der SDE,
+  # keine diskreten Standardabweichungen. Die Zeitabhängigkeit steckt
+  # vollständig in den g-Funktionen (g_{2a}(1) etc.).
+  a_jahr <- a
+  b_jahr <- b
   a_jahr <- a      # params$a_x ist bereits auf Monatsbasis; da delta=1/12:
   b_jahr <- b      # exp(-a_x * delta) = exp(-a_x/12) pro Monat
   # => pro Jahr: exp(-a_x) = exp(-a_jahr * 1)
   # => a_jahr = a_x (gleicher numerischer Wert, andere Zeiteinheit)
   
-  # Wichtiger Unterschied: sigma muss ebenfalls auf Jahresbasis skaliert werden!
-  # In simulation.R: Z_x * sigma_x * sqrt((1 - exp(-2*a_x*delta)) / (2*a_x))
-  # Das ist die MONATLICHE Innovations-Std.abw.
-  # Für Lemma 2.1 (Jahresschritt): nu_jahr = sigma_x (entspricht nu im Paper)
-  # da die Paper-Formeln für g_a(1) mit a = a_monat * 12 kalibriert sein müssen.
-  #
-  # PRAGMATISCHE LÖSUNG: Wir übergeben a_x direkt und setzen s=1 in g_k(s).
-  # ga(1) = (1-exp(-a_x))/a_x, das entspricht genau der Jahres-Übergangsdynamik
-  # in deiner Simulation (exp(-a_x * delta) mit delta=1 Jahr = 12*1/12).
+  # Sigma muss ebenfalls auf Jahresbasis skaliert werden!
+
   
   sig <- berechne_sigma(
     a     = a_jahr,
@@ -578,8 +521,6 @@ sm_berechnung <- function(params, vb,
   gitter <- erstelle_gitter(N, delta_grid, sig$Sigma)
   
   # Plausibilitätsprüfung: implizierter effektiver Zinsbereich an den Gitterrändern.
-  # Da x und y stark korreliert sind (rho=-0.992), kompensieren sie sich fast
-  # vollständig. Der relevante Zinsbereich basiert auf sd(x+y), nicht x_max+y_max.
   if (verbose) {
     psi_1j   <- int_psi_jahres[1]
     S11      <- sig$Sigma[1,1]; S12 <- sig$Sigma[1,2]; S22 <- sig$Sigma[2,2]
@@ -665,7 +606,7 @@ sm_berechnung <- function(params, vb,
     Q_t <- P * C_t
     
     # Update: A_t[j] = sum_i Q[i,j] * A_{t-1}[i]  [Gl. 15]
-    # = (t(Q) %*% A)[j] — Transposition nötig, da Q Zeile=von, Spalte=nach
+    # = (t(Q) %*% A)[j] —> Transposition nötig, da Q Zeile=von, Spalte=nach
     # crossprod(Q, A) = t(Q) %*% A, effizienter als explizites t()
     A <- as.vector(crossprod(Q_t, A))
     
@@ -679,7 +620,7 @@ sm_berechnung <- function(params, vb,
   
   laufzeit <- as.numeric(difftime(Sys.time(), start_gesamt, units = "secs"))
   
-  # E[Z_T] = sum(A_T) gemäß Algorithm 3.1
+  # E[Z_T] = sum(A_T) gemäß Algorithmus 3.1
   E_ZT <- A_verlauf[T_jahre]
   
   if (verbose) {

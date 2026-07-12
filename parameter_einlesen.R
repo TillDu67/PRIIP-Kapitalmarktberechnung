@@ -1,18 +1,16 @@
 # parameter_einlesen.R
 # Liest alle Modellparameter aus dem "Input"-Sheet der Excel-Datei.
 #
-# Wichtig: Mehrere Parameter sind in Excel als
-#   =IF(Art="Fonds", I<row>, H<row>)
-# definiert (Deckungsstock und Fonds haben unterschiedliche Werte fuer
-# sigma_I, Ueberrendite, Anteil_Aktie, Duration, F_0/F_1/F_2, ...).
+# Wichtig: Deckungsstock und Fonds haben unterschiedliche Werte fuer
+# sigma_I, Ueberrendite, Anteil_Aktie, Duration, F_0/F_1/F_2, ...
 #
-# readxl liefert fuer solche Formelzellen nur den GECACHTEN Wert (so wie
-# Excel die Datei zuletzt gespeichert hat) - das entspricht aber nur EINEM
-# der beiden "Art"-Faelle. Deshalb lesen wir hier direkt die STATISCHEN
-# H- bzw. I-Spalten und waehlen selbst anhand von Art (Zelle C31) aus.
+# readxl liefert für solche Formelzellen nur den gecachten Wert (so wie
+# Excel die Datei zuletzt gespeichert hat) - das entspricht aber nur einem
+# der beiden "Art"-Faelle. Deshalb lesen wir hier direkt die statischen
+# H- bzw. I-Spalten (in der Excel-Input Datei) und wählen selbst anhand von Art (Zelle C31) aus.
 #
 # art_override kann "Deckungsstock" oder "Fonds" sein, um die Auswahl zu
-# erzwingen, unabhaengig davon was in C31 steht (z.B. um beide Faelle aus
+# erzwingen, unabhaengig davon was in C31 steht (z.B. um beide Fälle aus
 # derselben Datei zu rechnen).
 
 lese_parameter <- function(pfad_input, art_override = NULL) {
@@ -29,7 +27,7 @@ lese_parameter <- function(pfad_input, art_override = NULL) {
     as.character(val)
   }
   
-  # --- Art bestimmen ---
+  # Art bestimmen
   art <- if (!is.null(art_override)) art_override else zelle_chr(31, 3)  # C31
   
   if (!(art %in% c("Deckungsstock", "Fonds"))) {
@@ -44,13 +42,13 @@ lese_parameter <- function(pfad_input, art_override = NULL) {
   sigma_I_N <- art_abhaengig(32)  # \sigma_I
   
   params <- list(
-    # --- Allgemein ---
+    # Allgemein
     Art         = art,
     Pfade       = zelle(1, 3),
     Pfad_Output = zelle_chr(2, 3),
     Jahr        = zelle(3, 3),
     
-    # --- Zins-/Aktienmodell (Art-unabhaengig) ---
+    # Zins-/Aktienmodell (Art-unabhaengig)
     l_x     = zelle(10, 3),
     l_y     = zelle(11, 3),
     d_x     = zelle(12, 3),
@@ -68,17 +66,17 @@ lese_parameter <- function(pfad_input, art_override = NULL) {
     tau_1   = zelle(24, 3),
     tau_2   = zelle(25, 3),
     
-    # --- Nelson-Siegel-Svensson / lineare Extrapolation ---
+    # Nelson-Siegel-Svensson / lineare Extrapolation
     LinearBeginn = zelle(27, 3),
     Linear_Wert  = zelle(28, 3),
     delta        = zelle(29, 3),
     
-    # --- Art-abhaengige Parameter (Deckungsstock vs. Fonds) ---
+    # Art-abhängige Parameter (Deckungsstock vs. Fonds)
     sigma_s   = art_abhaengig(9),
     sigma_I_N = sigma_I_N,
     sigma_I_S = 1.5 * sigma_I_N,   # Excel: sigma_I_Stress = 1.5 * sigma_I
-    lambda_N  = art_abhaengig(34), # Ueberrendite
-    lambda_S  = 0,                 # Ueberrendite_Stress (immer 0)
+    lambda_N  = art_abhaengig(34), # Überrendite
+    lambda_S  = 0,                 # Überrendite_Stress (immer 0)
     K_f       = art_abhaengig(39), # Portfoliotransaktionskosten/Fondskosten
     Ant_Akt   = art_abhaengig(40), # Anteil der Aktien am Deckungsstock
     Duration  = art_abhaengig(36), # d

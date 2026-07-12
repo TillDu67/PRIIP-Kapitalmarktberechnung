@@ -1,5 +1,5 @@
 # main.R
-# Hauptskript -- PRIIP Kapitalmarktberechnung (Option A: Simulation + Renditen)
+# Hauptskript -- PRIIP Kapitalmarktberechnung 
 
 library(readxl)
 library(openxlsx)
@@ -15,8 +15,8 @@ pfad_input <- "C:/Users/TillD/OneDrive/Desktop/PRIIP-20260610T153054Z-3-001/PRII
 
 # art_override:
 #   NULL            -> Art wird aus Zelle "Art" (C31) in Excel gelesen
-#   "Deckungsstock" -> erzwingt Deckungsstock-Parameter (H-Spalte)
-#   "Fonds"         -> erzwingt Fonds-Parameter (I-Spalte)
+#   "Deckungsstock" -> erzwingt Deckungsstock-Parameter (H-Spalte in Input-Datei)
+#   "Fonds"         -> erzwingt Fonds-Parameter (I-Spalte in Input-Datei)
 art_override <- "Deckungsstock"
 
 # --- Parameter einlesen ---

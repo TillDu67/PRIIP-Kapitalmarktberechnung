@@ -31,7 +31,7 @@ vergleiche_alle <- function(params, vb, ap, res,
               T_jahre, g_garantie, alpha, delta_g))
   cat("============================================================\n\n")
   
-  # --- Teil 2: MC auf EIA-Basis (Referenzwert) ---
+  # Teil 2: MC auf EIA-Basis (Referenzwert)
   cat("--- Teil 2: Monte-Carlo Referenz (EIA-Struktur) ---\n")
   mc <- mc_eia(params, vb, T_jahre, g_garantie, alpha,
                rho1, rho2, n_mc = n_mc)
@@ -40,7 +40,7 @@ vergleiche_alle <- function(params, vb, ap, res,
   cat(sprintf("  95%%-KI     = [%.6f, %.6f]\n", mc$CI_low, mc$CI_high))
   cat(sprintf("  Laufzeit   = %.1f Sek.\n\n", mc$laufzeit))
   
-  # --- Teil 1: SM Konvergenzsweep ---
+  # Teil 1: SM Konvergenzsweep
   cat("--- Teil 1: SM Konvergenz über N ---\n")
   sm_ergebnisse <- vector("list", length(N_werte))
   for (k in seq_along(N_werte)) {
@@ -69,7 +69,7 @@ vergleiche_alle <- function(params, vb, ap, res,
                 ifelse(im_KI, "JA", "NEIN")))
   }
   
-  # --- Teil 3: Bezug zur bestehenden PRIIP-MC ---
+  # Teil 3: Bezug zur bestehenden PRIIP-MC
   cat("\n--- Teil 3: Bezug zur bestehenden PRIIP-MC ---\n")
   priip <- priip_naehering(res, params, T_jahre)
   cat(sprintf("  E[Mischrendite kumuliert, %d J.] = %.6f\n",
@@ -93,8 +93,8 @@ vergleiche_alle <- function(params, vb, ap, res,
 # Simuliert n_mc Pfade mit exakter Jahres-Simulation (Lemma 2.1).
 # Berechnet E[Z_T] = E[prod_t max(e^g, S_t^alpha) * e^{-int_r_t}]
 #
-# 3-Schritt-Simulation (robust bei |rho_xy| nahe 1):
-#   Schritt 1: (x_t, y_t) ~ N(mu_12, Sigma_2x2)  via 2x2-Cholesky (immer pd)
+# 3-Schritt-Simulation:
+#   Schritt 1: (x_t, y_t) ~ N(mu_12, Sigma_2x2)
 #   Schritt 2: int_r | (x_t,y_t) ~ N(mu_bar, sigma_bar2)
 #              [sigma_bar2 ≈ 0 bei rho≈-1 -> näherungsweise deterministisch]
 #   Schritt 3: ln(S_t/S_{t-1}) | (x_t,y_t) ~ N(mu_tilde, sigma2_tilde)
@@ -114,7 +114,7 @@ mc_eia <- function(params, vb, T_jahre, g_garantie, alpha,
   l_x <- params$l_x; l_y <- params$l_y
   tau <- params$tau
   
-  # Sigma-Komponenten (Lemma 2.1, korrigierte Formeln)
+  # Sigma-Komponenten (Lemma 2.1)
   sig <- berechne_sigma(a, b, nu, eta, rho_r, sigma, rho1, rho2)
   S   <- sig$Sigma
   S11 <- S[1,1]; S12 <- S[1,2]; S13 <- S[1,3]; S14 <- S[1,4]
@@ -172,13 +172,11 @@ mc_eia <- function(params, vb, T_jahre, g_garantie, alpha,
       mu3    <- int_psi_jahres[t] + ga1*x_t + gb1*y_t +
         lx*(1-ga1) + ly*(1-gb1)
       mu_bar <- mu3 + A_x*(x_t1 - mu1) + A_y*(y_t1 - mu2)
-      int_r  <- mu_bar + sd_bar * rnorm(1)   # ≈ mu_bar wenn sd_bar≈0
+      int_r  <- mu_bar + sd_bar * rnorm(1)   
       
       # Schritt 3: ln(S_t/S_{t-1}) | (x_t1, y_t1)
-      # mu_tilde = mu3 + (lambda_S - 0.5*sigma^2 - S33_tilde_term)
-      #            + At_x*(x_t1 - mu1t) + At_y*(y_t1 - mu2t)
       # Vereinfacht mit lambda_S=0:
-      mu1t     <- mu1 - S13   # tilted mean (u=1)
+      mu1t     <- mu1 - S13  
       mu2t     <- mu2 - S23
       mu3t     <- mu3 + lambda_S - 0.5*sigma^2 -
         (S33 + sigma*(sig$Delta))
