@@ -11,7 +11,8 @@ source("renditen.R")
 source("output.R")
 
 # --- Pfad zur Eingabedatei ---
-pfad_input <- "C:/Users/TillD/OneDrive/Desktop/PRIIP-20260610T153054Z-3-001/PRIIP/2024/2024_PRIIP_Kapitalmarktberechnung ohne Makros.xlsx"
+# Bitte hier den lokalen Pfad zur Eingabedatei eintragen:
+pfad_input <- "PRIIP_Kapitalmarktberechnung.xlsx"
 
 # art_override:
 #   NULL            -> Art wird aus Zelle "Art" (C31) in Excel gelesen
@@ -22,7 +23,7 @@ art_override <- "Deckungsstock"
 # --- Parameter einlesen ---
 cat("Lese Parameter ein...\n")
 params <- lese_parameter(pfad_input, art_override = art_override)
-params$Pfad_Output <- "C:/Users/TillD/OneDrive/Desktop/PRIIP-20260610T153054Z-3-001/PRIIP/R Output"
+params$Pfad_Output <- "R Output"
 art <- params$Art
 cat("Art:", art, "| Pfade:", params$n_pfade, "| Duration:", params$Duration, "\n\n")
 
@@ -81,7 +82,7 @@ vgl <- vergleiche_alle(
   ap         = ap,
   res        = res,
   N_werte    = c(5, 8, 10, 15, 20),
-  delta_g    = 2.0,      # δ=2.0: exp(At_x*x_max)=1.6 -> phi-Werte kontrolliert
+  delta_g    = 8.25,     # Standardwert aus Günther & Hieber (2024)
   T_jahre    = 25,
   g_garantie = 0.005,
   alpha      = 0.465,
