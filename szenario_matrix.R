@@ -52,10 +52,14 @@ berechne_sigma <- function(a, b, nu, eta, rho_r, sigma, rho1, rho2) {
   S12 <- rho_r * nu * eta * gab1
   
   # Sigma_13 = Cov(x_t, integral r)
-  S13 <- nu^2 / 2 * g2a1 + rho_r * nu * eta / b * (ga1 - gab1)
+  # Achtung: hier steht g_a(1)^2, NICHT g_{2a}(1) -- die beiden sehen in
+  # extrahiertem Text fast gleich aus, sind aber verschiedene Groessen.
+  # Herleitung ueber I_4(a,a) = (1/a)*(g_a(1) - g_{2a}(1)) = g_a(1)^2 / 2
+  # (siehe Anhang C.0.4, Rechenschritt nach den Integralen I_1 bis I_5).
+  S13 <- nu^2 / 2 * ga1^2 + rho_r * nu * eta / b * (ga1 - gab1)
   
-  # Sigma_23 = Cov(y_t, integral r)
-  S23 <- eta^2 / 2 * g2b1 + rho_r * nu * eta / a * (gb1 - gab1)
+  # Sigma_23 = Cov(y_t, integral r) -- analog zu Sigma_13
+  S23 <- eta^2 / 2 * gb1^2 + rho_r * nu * eta / a * (gb1 - gab1)
   
   # Delta = rho1*sigma*nu/a*(1-ga1) + rho2_tilde*sigma*eta/b*(1-gb1)
   Delta <- rho1 * sigma * nu / a * (1 - ga1) +
@@ -212,7 +216,7 @@ erstelle_gitter <- function(N, delta_g, Sigma) {
 #
 # Laufzeit: O(N^4) — für N=10 ca. 1-2 Sek., N=20 ca. 20-30 Sek.
 
-berechne_P_matrix <- function(gitter, sig, a, b) {
+berechne_P_matrix <- function(gitter, sig, a, b, lambda_x = 0, lambda_y = 0) {
   
   if (!requireNamespace("mvtnorm", quietly = TRUE)) {
     stop("Paket 'mvtnorm' wird benoetigt: install.packages('mvtnorm')")
@@ -246,8 +250,11 @@ berechne_P_matrix <- function(gitter, sig, a, b) {
     yi_prev <- gitter$y[i]
     
     # Bedingte Erwartung von (x_t, y_t) | (x_{t-1}, y_{t-1}) nach Lemma 2.1
-    mu_xt <- exp_a * xi_prev
-    mu_yt <- exp_b * yi_prev
+    # (der Drift-Term lambda*(1-exp(-.)) wurde hier bisher vergessen --
+    #  ohne ihn landet die Uebergangsmasse bei l_x/l_y != 0 systematisch
+    #  neben den Gitterzellen, die phi() tatsaechlich benutzt)
+    mu_xt <- exp_a * xi_prev + lambda_x * (1 - exp_a)
+    mu_yt <- exp_b * yi_prev + lambda_y * (1 - exp_b)
     mu_cond <- c(mu_xt, mu_yt)
     
     for (j in 1:n2) {
@@ -454,8 +461,14 @@ sm_berechnung <- function(params, vb,
   nu      <- params$sigma_x
   eta     <- params$sigma_y
   rho_r   <- params$rho_xy
-  sigma   <- params$sigma_s
-  lambda_S <- params$lambda_N   # Risikoprämie Aktie (Normal-Szenario)
+  
+  # sigma_s ist in der VBA-Referenz (Zinsdynamik) nur ein Normierungsfaktor
+  # und NICHT die tatsaechliche Aktienvolatilitaet -- die ist sigma_I_N.
+  # lambda_N ist ein Marktpreis-Parameter, keine Ueberrendite; die
+  # tatsaechliche Ueberrendite ergibt sich erst nach Normierung mit
+  # sigma_I_N/sigma_s (siehe VBA: lambda_N * sigma_I_N / sigma_s).
+  sigma    <- params$sigma_I_N
+  lambda_S <- params$lambda_N * params$sigma_I_N / params$sigma_s
   delta   <- params$delta       # Monatlicher Zeitschritt (= 1/12)
   
   # Zeitabhängige Risikoprämien: vor und nach Tau
@@ -539,11 +552,12 @@ sm_berechnung <- function(params, vb,
     }
   }
   
-  if (verbose) cat("Berechne P-Matrix...\n")
-  start_P <- Sys.time()
-  P <- berechne_P_matrix(gitter, sig, a_jahr, b_jahr)
-  if (verbose) cat(sprintf("  P-Matrix: %.1f Sekunden\n",
-                           as.numeric(difftime(Sys.time(), start_P, units="secs"))))
+  # P haengt seit der Korrektur der Drift-Terme (siehe berechne_P_matrix)
+  # von lambda_x/lambda_y ab und damit potenziell vom Jahr t (tau-Wechsel).
+  # Deshalb wird P nicht mehr hier einmalig vorab berechnet, sondern weiter
+  # unten in der Jahresschleife je nach lambda-Regime aus einem Cache
+  # geholt bzw. beim ersten Mal dort berechnet.
+  P_cache <- list()
   
   # --- Anfangszustand: (x_0, y_0) = (0, 0) ---
   # Index i_0: Welcher Gitterpunkt ist am nächsten an (0,0)?
@@ -576,6 +590,22 @@ sm_berechnung <- function(params, vb,
       lambda_x <- params$l_x
       lambda_y <- params$l_y
     }
+    
+    # P-Matrix fuer dieses lambda-Regime aus dem Cache holen. Da lambda_x/
+    # lambda_y in aller Regel ueber alle T Jahre gleich bleiben (Wechsel nur
+    # um tau herum), wird P im Normalfall genau einmal berechnet und danach
+    # nur noch nachgeschlagen.
+    cache_key <- paste(lambda_x, lambda_y)
+    if (is.null(P_cache[[cache_key]])) {
+      if (verbose) cat(sprintf("Berechne P-Matrix fuer lambda_x=%.4f, lambda_y=%.4f...\n",
+                               lambda_x, lambda_y))
+      start_P <- Sys.time()
+      P_cache[[cache_key]] <- berechne_P_matrix(gitter, sig, a_jahr, b_jahr,
+                                                 lambda_x = lambda_x, lambda_y = lambda_y)
+      if (verbose) cat(sprintf("  P-Matrix: %.1f Sekunden\n",
+                               as.numeric(difftime(Sys.time(), start_P, units="secs"))))
+    }
+    P <- P_cache[[cache_key]]
     
     # Jährliches Integral int_psi(t-1, t)
     int_psi_t <- int_psi_jahres[t]
